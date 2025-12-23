@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1.0,user-scalable=no" />
+  <title>カラー選択式ルーティンタイマー</title>
+  <style>
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      display:flex;justify-content:center;align-items:center;flex-direction:column;
+      min-height:100vh;margin:0;background:#f0f2f5;color:#333;
+      padding:10px env(safe-area-inset-right) calc(10px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+    }
+    .app-container{
+      width:min(92vw,420px); background:#fff; border-radius:20px;
+      box-shadow:0 10px 25px rgba(0,0,0,.1); padding:24px; text-align:center;
+    }
+    h1{ margin:0 0 8px; color:#2c3e50; font-size:1.1rem }
+
+    /* タイマー表示 */
+    .timer-display{ width:100%; position:relative; aspect-ratio:1/1; margin:16px 0; }
+    .timer-circle{ position:absolute; inset:0; border-radius:50%; background:#e9ecef; }
+    #color-wedge{ position:absolute; inset:0; border-radius:50%; transition:background-image .08s linear; }
+
+    #timeLeftDisplay{
+      position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      font-size:clamp(28px,8vw,48px); font-weight:700; color:#34495e; z-index:1;
+    }
+
+    /* 実行予定リスト */
+    .queue-container {
+      margin: 15px 0; text-align: left; background: #f8f9fa; padding: 12px; border-radius: 12px;
+      border: 1px solid #e9ecef; min-height: 60px;
+    }
+    .queue-title { font-size: 0.75rem; color: #7f8c8d; margin-bottom: 8px; font-weight: bold; display:flex; justify-content:space-between; }
+    .queue-list { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0; }
+
+    .queue-item {
+      padding: 4px 8px 4px 12px; border-radius: 20px; font-size: 0.9rem; color: #fff;
+      display: flex; align-items: center; gap: 6px;
+      transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .queue-item.active { transform: scale(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.2); font-weight: bold; border: 2px solid #333; }
+    .queue-item.done { background: #dfe6e9 !important; color: #95a5a6 !important; text-decoration: line-through; opacity: 0.7; box-shadow:none; }
+
+    /* 削除ボタン */
+    .del-btn {
+      background: rgba(0,0,0,0.2); border: none; color: inherit; border-radius: 50%;
+      width: 18px; height: 18px; line-height: 16px; font-size: 12px; cursor: pointer;
+      display: inline-flex; justify-content: center; align-items: center;
+    }
+    .del-btn:hover { background: rgba(0,0,0,0.4); }
+
+    /* 入力エリア全体 */
+    .input-section { transition: opacity 0.3s; }
+    .input-section.hidden { opacity: 0.3; pointer-events: none; }
+
+    /* 色選択ボタン */
+    .color-selector {
+      display: flex; justify-content: center; gap: 15px; margin-bottom: 10px;
+    }
+    .color-btn {
+      width: 32px; height: 32px; border-radius: 50%; border: 3px solid transparent;
+      cursor: pointer; transition: transform 0.2s;
+    }
+    .color-btn.selected { border-color: #333; transform: scale(1.15); }
+    .c-red { background: #e74c3c; }
+    .c-yellow { background: #f1c40f; }
+    .c-blue { background: #3498db; }
+
+    /* 時間入力 */
+    .time-input-container{
+      display:flex; justify-content:center; align-items:center; gap:8px; margin:0 0 18px;
+    }
+    .time-input-container input{
+      width:55px; padding:10px; font-size:1rem; text-align:center;
+      border:1px solid #ced4da; border-radius:10px;
+    }
+
+    /* ボタン類 */
+    .controls{ display:flex; flex-direction: column; gap:10px }
+    .btn-group { display: flex; justify-content: center; gap: 10px; }
+    .btn{
+      padding:12px 18px; font-size:1rem; border:none; border-radius:10px; cursor:pointer;
+      color:#fff; box-shadow:0 4px 8px rgba(0,0,0,.08); font-weight:700; flex: 1;
+      transition: all 0.2s;
+    }
+    #addBtn { background: #2ecc71; flex: 0; white-space: nowrap; }
+    #startStopBtn{ background:#3498db }
+    #startStopBtn.running{ background:#f39c12 }
+    #startStopBtn.restart{ background:#9b59b6 }
+    #resetBtn{ background:#95a5a6 }
+    .btn:active { transform: translateY(2px); box-shadow: none; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <h1>カラー・ルーティンタイマー</h1>
+
+    <div class="timer-display">
+      <div class="timer-circle"></div>
+      <div id="color-wedge"></div>
+      <div id="timeLeftDisplay">00:00</div>
+    </div>
+
+    <div class="queue-container">
+      <div class="queue-title">
+        <span>スケジュール</span>
+        <span id="totalTimeLabel" style="font-weight:normal"></span>
+      </div>
+      <div id="queueList" class="queue-list">
+        <span style="color:#bdc3c7; font-size:0.8rem; padding:5px;">色を選んで時間を追加</span>
+      </div>
+    </div>
+
+    <div class="input-section" id="inputSection">
+      <div class="color-selector">
+        <div class="color-btn c-red selected" onclick="selectColor('#e74c3c', this)" role="button" aria-label="赤を選択"></div>
+        <div class="color-btn c-yellow" onclick="selectColor('#f1c40f', this)" role="button" aria-label="黄を選択"></div>
+        <div class="color-btn c-blue" onclick="selectColor('#3498db', this)" role="button" aria-label="青を選択"></div>
+      </div>
+
+      <div class="time-input-container">
+        <input type="number" id="minutesInput" value="10" min="0" max="60" inputmode="numeric">
+        <span>分</span>
+        <input type="number" id="secondsInput" value="0" min="0" max="59" inputmode="numeric">
+        <span>秒</span>
+        <button id="addBtn" class="btn">追加</button>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="btn-group">
+        <button id="startStopBtn" class="btn">スタート</button>
+        <button id="resetBtn" class="btn">全クリア</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // --- 要素取得 ---
+  const minutesInput = document.getElementById('minutesInput');
+  const secondsInput = document.getElementById('secondsInput');
+  const startStopBtn = document.getElementById('startStopBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const addBtn = document.getElementById('addBtn');
+  const queueListEl = document.getElementById('queueList');
+  const timeLeftDisplay = document.getElementById('timeLeftDisplay');
+  const colorWedge = document.getElementById('color-wedge');
+  const inputSection = document.getElementById('inputSection');
+  const totalTimeLabel = document.getElementById('totalTimeLabel');
+
+  // --- 状態管理変数 ---
+  let timerQueue = []; // {total: 秒, remaining: 秒, color: コード}
+  let currentIdx = -1;
+  let running = false;
+  let timerId = null;
+  let expectedEndMs = 0;
+  let isAllFinished = false;
+  let selectedColorCode = '#e74c3c'; // デフォルト赤
+
+  // --- 色選択ロジック ---
+  window.selectColor = function(color, el) {
+    selectedColorCode = color;
+    document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+
+  // --- WebAudio (チャイム) ---
+  let audioCtx = null, masterGain = null;
+  function ensureAudio(){
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 1;
+      masterGain.connect(audioCtx.destination);
+    }
+    if(audioCtx.state === 'suspended'){ audioCtx.resume(); }
+  }
+  function tone(f, t, type='sine', at){
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(f, at);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.linearRampToValueAtTime(1.0, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, at + t);
+    osc.connect(g).connect(masterGain); osc.start(at); osc.stop(at + t + 0.05);
+  }
+  function playChime(){
+    ensureAudio();
+    const now = audioCtx.currentTime;
+    tone(523.25, 0.18, 'sine', now);
+    tone(659.25, 0.18, 'sine', now + 0.08);
+    tone(783.99, 0.20, 'sine', now + 0.16);
+    tone(1046.5, 0.24, 'sine', now + 0.24);
+    if (navigator.vibrate) { navigator.vibrate([100, 50, 100]); }
+  }
+
+  // --- 時間フォーマット ---
+  const mmss = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+
+  // 合計/残り（表示用）
+  function updateTotalLabel(){
+    const total = timerQueue.reduce((a,t)=>a+t.total,0);
+    const remain = (!isAllFinished && currentIdx >= 0)
+      ? timerQueue.slice(currentIdx).reduce((a,t)=>a+t.remaining,0)
+      : 0;
+
+    if(total <= 0){
+      totalTimeLabel.textContent = '';
+      return;
+    }
+    // 右上はこれだけ（ごちゃつかない）
+    totalTimeLabel.textContent = running
+      ? `合計 ${mmss(total)} / 残り ${mmss(remain)}`
+      : `合計 ${mmss(total)}`;
+  }
+
+  // --- UI更新 ---
+  function updateUI() {
+    queueListEl.innerHTML = '';
+
+    if (timerQueue.length === 0) {
+      queueListEl.innerHTML = '<span style="color:#bdc3c7; font-size:0.8rem; padding:5px;">色を選んで時間を追加</span>';
+    } else {
+      timerQueue.forEach((item, idx) => {
+        const span = document.createElement('span');
+        let stateClass = '';
+        if (!isAllFinished && idx === currentIdx) stateClass = 'active';
+        else if (isAllFinished || idx < currentIdx) stateClass = 'done';
+
+        span.className = `queue-item ${stateClass}`;
+
+        const isYellow = (item.color === '#f1c40f');
+        span.style.backgroundColor = item.color;
+        span.style.color = isYellow ? '#333' : '#fff';
+
+        span.innerHTML = `
+          ${mmss(item.total)}
+          <button class="del-btn" onclick="deleteTimer(${idx})" aria-label="削除" style="color:${isYellow?'#333':'#fff'}">×</button>
+        `;
+        queueListEl.appendChild(span);
+      });
+    }
+
+    // 文字盤更新
+    if (!isAllFinished && currentIdx >= 0 && currentIdx < timerQueue.length) {
+      const current = timerQueue[currentIdx];
+      timeLeftDisplay.textContent = mmss(current.remaining);
+      const deg = (current.remaining / current.total) * 360;
+      colorWedge.style.backgroundImage = `conic-gradient(${current.color} ${deg}deg, transparent ${deg}deg)`;
+    } else {
+      timeLeftDisplay.textContent = "00:00";
+      colorWedge.style.backgroundImage = 'none';
+    }
+
+    // 入力欄の制御
+    if (running) {
+      inputSection.classList.add('hidden');
+      addBtn.disabled = true;
+    } else {
+      inputSection.classList.remove('hidden');
+      addBtn.disabled = false;
+    }
+
+    // スタート無効化（0件のときだけ）
+    startStopBtn.disabled = (timerQueue.length === 0);
+
+    updateTotalLabel();
+  }
+
+  // --- タイマー操作ロジック ---
+
+  function addTimer() {
+    const m = parseInt(minutesInput.value || 0);
+    const s = parseInt(secondsInput.value || 0);
+    const total = m * 60 + s;
+    if (total <= 0) return;
+
+    if (isAllFinished) {
+      isAllFinished = false;
+      startStopBtn.textContent = 'スタート';
+      startStopBtn.classList.remove('restart');
+      currentIdx = timerQueue.length; // ここに新規を“続き”として追加
+    }
+
+    timerQueue.push({
+      total: total,
+      remaining: total,
+      color: selectedColorCode
+    });
+
+    if (currentIdx === -1) currentIdx = 0;
+    updateUI();
+  }
+
+  window.deleteTimer = function(idx) {
+    if (running) pause();
+
+    timerQueue.splice(idx, 1);
+
+    if (timerQueue.length === 0) {
+      resetAll();
+      return;
+    }
+
+    // currentIdx を安全に調整
+    if (!isAllFinished) {
+      if (idx < currentIdx) currentIdx--;
+      if (currentIdx >= timerQueue.length) currentIdx = timerQueue.length - 1;
+      if (currentIdx < 0) currentIdx = 0;
+    }
+
+    updateUI();
+  };
+
+  function start() {
+    if (timerQueue.length === 0) return;
+
+    if (isAllFinished) {
+      restartRoutine();
+      return;
+    }
+
+    ensureAudio();
+    running = true;
+
+    // 念のため二重起動防止
+    clearInterval(timerId);
+    timerId = null;
+
+    startStopBtn.textContent = '一時停止';
+    startStopBtn.classList.add('running');
+    startStopBtn.classList.remove('restart');
+
+    // 正確な終了時刻を計算
+    expectedEndMs = Date.now() + (timerQueue[currentIdx].remaining * 1000);
+
+    timerId = setInterval(() => {
+      const now = Date.now();
+      // 早く0になりすぎないよう ceil
+      const diff = Math.ceil((expectedEndMs - now) / 1000);
+
+      if (diff <= 0) {
+        timerQueue[currentIdx].remaining = 0;
+        updateUI();
+        autoNext();
+      } else {
+        timerQueue[currentIdx].remaining = diff;
+        updateUI();
+      }
+    }, 200);
+
+    updateUI();
+  }
+
+  function autoNext() {
+    clearInterval(timerId);
+    timerId = null;
+
+    playChime();
+
+    if (currentIdx < timerQueue.length - 1) {
+      currentIdx++;
+      setTimeout(() => {
+        if (running) start();
+      }, 500);
+    } else {
+      finishAll();
+    }
+  }
+
+  function pause() {
+    // 停止時に残りを“今この瞬間”で再計算（ズレ防止）
+    if (running && currentIdx >= 0 && currentIdx < timerQueue.length) {
+      const diff = Math.ceil((expectedEndMs - Date.now()) / 1000);
+      timerQueue[currentIdx].remaining = Math.max(0, diff);
+    }
+
+    running = false;
+    clearInterval(timerId);
+    timerId = null;
+
+    startStopBtn.textContent = '再開';
+    startStopBtn.classList.remove('running');
+    updateUI();
+  }
+
+  function finishAll() {
+    running = false;
+    clearInterval(timerId);
+    timerId = null;
+
+    isAllFinished = true;
+    startStopBtn.textContent = 'もう一度 (ループ)';
+    startStopBtn.classList.remove('running');
+    startStopBtn.classList.add('restart');
+    updateUI();
+  }
+
+  function restartRoutine() {
+    isAllFinished = false;
+    currentIdx = 0;
+    timerQueue.forEach(t => t.remaining = t.total);
+    updateUI();
+    start();
+  }
+
+  function resetAll() {
+    running = false;
+    clearInterval(timerId);
+    timerId = null;
+
+    timerQueue = [];
+    currentIdx = -1;
+    isAllFinished = false;
+    startStopBtn.textContent = 'スタート';
+    startStopBtn.classList.remove('running', 'restart');
+    updateUI();
+  }
+
+  // --- イベント設定 ---
+  addBtn.addEventListener('click', addTimer);
+
+  // Enterで追加（地味に便利、UIは増やさない）
+  [minutesInput, secondsInput].forEach(el => {
+    el.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter') addTimer();
+    });
+  });
+
+  startStopBtn.addEventListener('click', () => {
+    if (running) pause();
+    else start();
+  });
+  resetBtn.addEventListener('click', resetAll);
+
+  // iOS等でのAudioロック解除
+  ['mousedown', 'touchstart'].forEach(e => {
+    window.addEventListener(e, () => ensureAudio(), { once: true });
+  });
+
+  // 初期描画
+  updateUI();
+</script>
+</body>
+</html>
